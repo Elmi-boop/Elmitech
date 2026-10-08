@@ -32,19 +32,6 @@ let me=null,role='viewer',products=[],locations=[],accounts=[];
 const money=n=>new Intl.NumberFormat('en-KE',{style:'currency',currency:'KES',maximumFractionDigits:0}).format(Number(n||0));
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function q(table,opts={}){let x=sb.from(table).select(opts.select||'*'); if(opts.eq) for(const [k,v] of Object.entries(opts.eq)) x=x.eq(k,v); if(opts.order)x=x.order(opts.order,{ascending:opts.asc??false}); if(opts.limit)x=x.limit(opts.limit); const {data,error}=await x;if(error)throw error;return data||[]}
-async function qAll(table,order=null,asc=false){
- const rows=[];let offset=0;
- while(true){
-  let query=sb.from(table).select('*');
-  if(order)query=query.order(order,{ascending:asc});
-  const {data,error}=await query.range(offset,offset+499);
-  if(error)throw error;
-  const batch=data||[];rows.push(...batch);
-  if(batch.length<500)break;
-  offset+=500;
- }
- return rows;
-}
 async function init(signedInUser=null){
  try{
   const user=signedInUser||(await sb.auth.getUser()).data.user;
@@ -72,21 +59,7 @@ function showApp(){document.getElementById('login').classList.add('hidden');docu
 document.getElementById('loginForm').onsubmit=async e=>{e.preventDefault();const msg=document.getElementById('loginMsg');msg.className='muted';msg.textContent='Signing in…';try{const {data,error}=await sb.auth.signInWithPassword({email:document.getElementById('email').value,password:document.getElementById('password').value});if(error){msg.className='error';msg.textContent=error.message;return}if(!data?.user)throw new Error('Supabase did not return a signed-in user.');await init(data.user)}catch(err){console.error('E-Ledger sign-in failed',err);msg.className='error';msg.textContent=err?.message||String(err)}};
 document.getElementById('logout').onclick=async()=>{await sb.auth.signOut();showLogin()};
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>openPage(b.dataset.page));
-async function openPage(p){
- const routes={dashboard:dashboard,inventory:inventory,sales:sales,transfers:transfers,shops:shops,money:moneyPage,banks:banksPage,physical:physicalStock,prices:priceList,reports:reports,ai:aiPage,audit:audit,users:users,settings:settings};
- const labels={dashboard:'Dashboard',inventory:'Inventory',sales:'Sales',transfers:'Transfers',shops:'Shops',money:'Money',banks:'Banks',physical:'Physical Stock',prices:'Price List',reports:'Reports',ai:'AI Entry',audit:'Audit',users:'Users',settings:'Settings'};
- const fn=routes[p], title=labels[p]||'E-Ledger';
- document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===p));
- document.getElementById('title').textContent=title;
- document.getElementById('subtitle').textContent='E-Ledger • Elmi-29';
- const content=document.getElementById('content');
- content.innerHTML='<div class="card"><p class="muted">Loading '+esc(title)+'…</p></div>';
- if(!fn){content.innerHTML='<div class="card"><p class="error">This section is not available.</p></div>';return}
- try{await fn()}catch(err){
-  console.error('E-Ledger page failed to load',p,err);
-  content.innerHTML='<div class="card"><h3>Could not load '+esc(title)+'</h3><p class="error">'+esc(err?.message||String(err))+'</p><p class="muted">The page stayed empty because its data could not be loaded. Refresh or contact your E-Ledger administrator if the problem continues.</p></div>';
- }
-}
+function openPage(p){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===p));document.getElementById('title').textContent=p[0].toUpperCase()+p.slice(1);({dashboard:dashboard,inventory:inventory,sales:sales,transfers:transfers,shops:shops,money:moneyPage,banks:banksPage,physical:physicalStock,prices:priceList,reports:reports,ai:aiPage,audit:audit,users:users,settings:settings}[p])()}
 async function dashboard(){document.getElementById('subtitle').textContent='E-Ledger • Elmi-29';const items=[['inventory','💻','Inventory','Stock by location'],['sales','🛒','Sales','Customer sales'],['transfers','↔️','Transfers','Move stock'],['shops','🏪','Shops','Shop positions'],['money','💰','Money','Money ledger'],['banks','🏦','Banks','Macalim + Elmi-29'],['physical','📋','Physical Stock','Store / Waafi / Hipower'],['prices','🏷️','Price List','Current selling prices'],['reports','📊','Reports','Business reports'],['ai','🤖','AI Entry','English + Somali'],['audit','📜','Audit','Change history'],['users','👥','Users','Roles'],['settings','⚙️','Settings','System settings']];document.getElementById('content').innerHTML='<div class="grid">'+items.map(i=>'<div class="card" style="cursor:pointer" onclick="openPage(\''+i[0]+'\')"><div style="font-size:30px">'+i[1]+'</div><h3>'+i[2]+'</h3><div class="muted">'+i[3]+'</div></div>').join('')+'</div>';}
 function metric(k,v){return '<div class="card metric"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>'}
 async function inventory(){
@@ -110,95 +83,8 @@ async function saveBankTransfer(){try{const amount=Number(btAmount.value);if(!am
 async function saveStoreReceipt(){try{const amount=Number(srAmount.value);if(!amount||amount<=0)throw Error('Enter a valid amount.');const from=accounts.find(a=>a.code==='CUSTOMER'),to=accounts.find(a=>a.code==='ELMI-29');if(!from||!to)throw Error('Customer or Elmi-29 account not found.');const {error}=await sb.from('money_transactions').insert({transaction_type:'store_sale_receipt',transaction_date:srDate.value,from_account:from.id,to_account:to.id,amount,reference:srRef.value.trim()||null,notes:srNotes.value.trim()||null,status:'active',device_name:'E-Ledger Web'});if(error)throw error;alert('Store receipt saved.');moneyPage()}catch(e){alert(e.message)}}
 async function saveExpense(){try{const amount=Number(exAmount.value);if(!amount||amount<=0)throw Error('Enter a valid amount.');const from=accounts.find(a=>a.id===exFrom.value);if(!from)throw Error('Select the payment account.');const {error}=await sb.from('money_transactions').insert({transaction_type:'expense',transaction_date:exDate.value,from_account:from.id,to_account:null,amount,expense_category_id:exCat.value||null,reference:exRef.value.trim()||null,notes:exNotes.value.trim()||null,status:'active',device_name:'E-Ledger Web'});if(error)throw error;alert('Expense saved.');moneyPage()}catch(e){alert(e.message)}}
 async function saveAccountTransfer(){try{const from=atFrom.value,to=atTo.value,amount=Number(atAmount.value);if(from===to)throw Error('FROM and TO must be different.');if(!amount||amount<=0)throw Error('Enter a valid amount.');const {error}=await sb.from('money_transactions').insert({transaction_type:'account_transfer',transaction_date:atDate.value,from_account:from,to_account:to,amount,reference:atRef.value.trim()||null,notes:atNotes.value.trim()||null,status:'active',device_name:'E-Ledger Web'});if(error)throw error;alert('Account transfer saved.');moneyPage()}catch(e){alert(e.message)}}
-async function reports(){
- const specs=[
-  ['stock','current_stock',null],
-  ['movement','product_movement_report','transaction_date'],
-  ['shopActivity','shop_performance_report','transaction_date'],
-  ['profit','sale_profit_report','transaction_date'],
-  ['money','money_flow_report','transaction_date'],
-  ['shopPositions','shop_money_position_summary','shop_code'],
-  ['balances','cash_position_summary',null],
-  ['bank','macalim_bank_report',null],
-  ['due','macalim_due_report','shop_code']
- ];
- document.getElementById('content').innerHTML='<div class="card"><h3>Business Reports</h3><p class="muted">Read-only reports for shop and store stock, laptop movements, sales, money flows and current balances.</p><div class="formgrid"><div><label>From date</label><input id="reportFrom" type="date"></div><div><label>To date</label><input id="reportTo" type="date"></div><div><label>Product</label><select id="reportProduct"><option value="">All products</option>'+productOptions()+'</select></div><div><label>Shop or location</label><select id="reportLocation"><option value="">All locations</option>'+locOptions(false)+'</select></div></div><div class="actions"><button class="secondary" onclick="renderReport(window._reports.active)">Apply filters</button><button class="secondary" data-report-tab="overview" onclick="renderReport(\'overview\')">Overview</button><button class="secondary" data-report-tab="stock" onclick="renderReport(\'stock\')">Shop &amp; Store stock</button><button class="secondary" data-report-tab="movement" onclick="renderReport(\'movement\')">Laptop movement</button><button class="secondary" data-report-tab="shops" onclick="renderReport(\'shops\')">Shop positions</button><button class="secondary" data-report-tab="money" onclick="renderReport(\'money\')">Money flow</button><button class="secondary" data-report-tab="balances" onclick="renderReport(\'balances\')">Balances</button><button class="secondary" data-report-tab="sales" onclick="renderReport(\'sales\')">Sales</button></div><div id="reportSummary" class="panel"></div><div id="reportBody" class="panel"><p class="muted">Loading report data…</p></div></div>';
- const settled=await Promise.allSettled(specs.map(x=>qAll(x[1],x[2],false)));
- const data={},errors=[];
- settled.forEach((result,i)=>{
-  const name=specs[i][0];
-  if(result.status==='fulfilled')data[name]=result.value;
-  else{data[name]=[];errors.push(name+': '+(result.reason?.message||String(result.reason)))}
- });
- window._reports={data:data,errors:errors,active:'overview'};
- renderReport('overview');
-}
-function reportFiltered(rows,withDates=true){
- const from=document.getElementById('reportFrom')?.value||'',to=document.getElementById('reportTo')?.value||'';
- const productId=document.getElementById('reportProduct')?.value||'';
- const locationId=document.getElementById('reportLocation')?.value||'';
- const product=products.find(p=>p.id===productId);
- const location=locations.find(l=>l.id===locationId);
- return (rows||[]).filter(r=>{
-  if(withDates&&(from||to)){
-   const date=String(r.transaction_date||r.date||r.created_at||'').slice(0,10);
-   if(!date||(from&&date<from)||(to&&date>to))return false;
-  }
-  if(productId){
-   const ids=[r.product_id,r.product,r.product_code].map(x=>String(x??'').toLowerCase());
-   const names=[r.product_name,r.name,r.product].map(x=>String(x??'').toLowerCase());
-   if(!ids.includes(String(productId).toLowerCase())&&!(product&&names.includes(String(product.name).toLowerCase())))return false;
-  }
-  if(locationId){
-   const tokens=[r.location_id,r.location_code,r.location_name,r.location,r.from_location_id,r.from_location_code,r.from_location_name,r.from_location,r.to_location_id,r.to_location_code,r.to_location_name,r.to_location,r.shop_id,r.shop_code,r.shop_name].map(x=>String(x??'').toLowerCase());
-   const wanted=[locationId,location?.code,location?.name].filter(Boolean).map(x=>String(x).toLowerCase());
-   if(!tokens.some(x=>wanted.includes(x)))return false;
-  }
-  return true;
- });
-}
-function reportRowsTable(title,rows){
- const keys=[...new Set((rows||[]).flatMap(r=>Object.keys(r||{})))].slice(0,18);
- if(!rows||!rows.length)return '<div class="card panel"><h3>'+esc(title)+'</h3><p class="muted">No rows match the selected filters.</p></div>';
- const head=keys.map(k=>'<th>'+esc(k.replace(/_/g,' '))+'</th>').join('');
- const body=rows.slice(0,1000).map(r=>'<tr>'+keys.map(k=>{const v=r[k];return '<td>'+esc(v&&typeof v==='object'?JSON.stringify(v):v??'')+'</td>'}).join('')+'</tr>').join('');
- return '<div class="card panel"><h3>'+esc(title)+' <span class="muted">('+rows.length+')</span></h3><div class="tablewrap"><table class="table"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div></div>';
-}
-function reportStockQty(rows){return (rows||[]).reduce((n,r)=>n+Number(r.quantity??r.qty??r.current_quantity??0),0)}
-function renderReport(type){
- if(!window._reports)return;
- const data=window._reports.data||{},errors=window._reports.errors||[];
- window._reports.active=type;
- document.querySelectorAll('[data-report-tab]').forEach(b=>b.classList.toggle('active',b.dataset.reportTab===type));
- const stock=reportFiltered(data.stock||[],false);
- const movements=reportFiltered(data.movement||[],true);
- const moneyRows=reportFiltered(data.money||[],true);
- const shopActivity=reportFiltered(data.shopActivity||[],true);
- const profit=reportFiltered(data.profit||[],true);
- const shopPositions=reportFiltered(data.shopPositions||[],false);
- const due=reportFiltered(data.due||[],false);
- const errorHtml=errors.length?'<div class="notice"><strong>Some report sources could not load:</strong><br>'+errors.map(esc).join('<br>')+'</div>':'';
- const locationsInStock=new Set(stock.map(r=>r.location_name||r.location_code||r.location).filter(Boolean));
- const productsInStock=new Set(stock.map(r=>r.product_name||r.name||r.product_id).filter(Boolean));
- document.getElementById('reportSummary').innerHTML=errorHtml+'<div class="grid">'+metric('Units in visible stock',String(reportStockQty(stock)))+metric('Products with stock records',String(productsInStock.size))+metric('Locations with stock records',String(locationsInStock.size))+'</div>';
- let html='';
- if(type==='overview'){
-  html=reportRowsTable('Stock by shop and store',stock)+reportRowsTable('Shop positions',shopPositions)+reportRowsTable('Macalim due by shop',due)+reportRowsTable('Current account balances',data.balances||[]);
- }else if(type==='stock'){
-  html=reportRowsTable('Current stock by location',stock);
- }else if(type==='movement'){
-  html=reportRowsTable('Laptop movement history',movements);
- }else if(type==='shops'){
-  html=reportRowsTable('Current shop positions',shopPositions)+reportRowsTable('Shop activity',shopActivity)+reportRowsTable('Macalim due by shop',due);
- }else if(type==='money'){
-  html=reportRowsTable('Money flow: source, destination, date and amount',moneyRows);
- }else if(type==='balances'){
-  html=reportRowsTable('Current account balances',data.balances||[])+reportRowsTable('Macalim bank position',data.bank||[])+reportRowsTable('Macalim due by shop',due);
- }else if(type==='sales'){
-  html=reportRowsTable('Shop sales and performance',shopActivity)+reportRowsTable('Sale profit',profit);
- }
- document.getElementById('reportBody').innerHTML=html||'<p class="muted">Choose a report.</p>';
-}
+async function reports(){const [p,s,m]=await Promise.all([q('product_movement_report',{order:'transaction_date',asc:false,limit:100}),q('shop_performance_report',{order:'transaction_date',asc:false,limit:100}),q('sale_profit_report',{order:'transaction_date',asc:false,limit:100})]);document.getElementById('content').innerHTML='<div class="card"><h3>Reports</h3><div class="actions"><button class="secondary" onclick="renderReport(\'mov\')">Product movement</button><button class="secondary" onclick="renderReport(\'shop\')">Shop performance</button><button class="secondary" onclick="renderReport(\'profit\')">Sale profit</button></div><div id="reportBody" class="panel"><p class="muted">Choose a report.</p></div></div>';window._reports={mov:p,shop:s,profit:m}}
+function renderReport(t){const a=window._reports[t]||[];document.getElementById('reportBody').innerHTML='<div class="tablewrap"><table class="table"><thead><tr>'+Object.keys(a[0]||{}).slice(0,9).map(k=>'<th>'+esc(k)+'</th>').join('')+'</tr></thead><tbody>'+a.slice(0,100).map(r=>'<tr>'+Object.keys(a[0]||{}).slice(0,9).map(k=>'<td>'+esc(r[k])+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>'}
 async function aiPage(){document.getElementById('content').innerHTML='<div class="card"><h3>🤖 AI / Smart Entry</h3><p class="muted">Write an entry in English or Somali. The system creates a review draft first. Nothing is saved as a business transaction until you confirm.</p><textarea id="aiText" rows="5" placeholder="Example: Waafi sold 2 HP 840 G3 i5 today, each 21000\nTusaale: Waafi wuxuu iibiyay 2 HP 840 G3 i5 maanta, midkiiba 21000"></textarea><div class="actions"><button onclick="parseAI()">Create review</button></div><div id="aiReview" class="panel"></div></div>'}
 async function parseAI(){const raw=aiText.value.trim();if(!raw)return;const lower=raw.toLowerCase();let type=lower.includes('sold')||lower.includes('iib')?'sale':lower.includes('transfer')||lower.includes('wareej')?'stock_transfer':'unknown';let prod=products.find(p=>lower.includes(p.name.toLowerCase()));let shop=locations.find(l=>lower.includes(l.code.toLowerCase())||lower.includes(l.name.toLowerCase()));const nums=[...raw.matchAll(/\b\d+(?:\.\d+)?\b/g)].map(m=>Number(m[0]));let qty=nums.find(n=>Number.isInteger(n)&&n>0&&n<100)||1;let price=nums.length?nums[nums.length-1]:0;const payload={type,product_id:prod?.id||null,product_name:prod?.name||null,shop:shop?.code||null,quantity:qty,unit_price:price,raw};const {data,error}=await sb.from('ai_entry_drafts').insert({raw_text:raw,language:/\b(wuxuu|iibiyay|maanta|midkiiba)\b/i.test(raw)?'so':'en',parsed_payload:payload,status:'draft',created_by:me.id}).select().single();if(error){aiReview.innerHTML='<p class="error">'+esc(error.message)+'</p>';return}aiReview.innerHTML='<div class="card"><h4>Review before saving</h4><pre style="white-space:pre-wrap">'+esc(JSON.stringify(payload,null,2))+'</pre><p class="notice">This is a review draft only. The business transaction has NOT been saved.</p><button onclick="confirmAI(\''+data.id+'\')">Confirm draft</button> <button class="danger" onclick="cancelAI(\''+data.id+'\')">Cancel</button></div>'}
 async function confirmAI(id){const {data:d}=await sb.from('ai_entry_drafts').select('*').eq('id',id).single();if(!d)return;const p=d.parsed_payload;if(p.type!=='sale'||!p.product_id||!p.shop){alert('This draft is incomplete. Use the normal Sales screen or improve the sentence.');return}const from=locations.find(l=>l.code===p.shop),customer=locations.find(l=>l.code==='CUSTOMER');const {error}=await sb.from('ledger_transactions').insert({transaction_type:'sale',transaction_date:new Date().toISOString().slice(0,10),from_location:from.id,to_location:customer.id,product_id:p.product_id,quantity:p.quantity,unit_price:p.unit_price,total_amount:p.quantity*p.unit_price,status:'active',notes:'Confirmed from AI/Smart Entry'});if(error){alert(error.message);return}await sb.from('ai_entry_drafts').update({status:'confirmed',confirmed_by:me.id,confirmed_at:new Date().toISOString()}).eq('id',id);alert('Confirmed and saved.');aiPage()}
@@ -207,24 +93,7 @@ async function audit(){const r=await q('audit_log',{order:'created_at',asc:false
 async function users(){const r=await q('app_users',{order:'display_name',asc:true});document.getElementById('content').innerHTML='<div class="card"><h3>Users</h3><p class="muted">Roles are ready for future employees: Admin, Manager, Staff, Viewer.</p><table class="table"><thead><tr><th>Name</th><th>Role</th><th>Active</th></tr></thead><tbody>'+r.map(x=>'<tr><td>'+esc(x.display_name)+'</td><td><span class="pill">'+x.role+'</span></td><td>'+x.active+'</td></tr>').join('')+'</tbody></table></div>'}
 async function physicalStock(){const rows=await q('current_stock');const locs=['STORE','WAAFI','HIPOWER'];const names={};products.forEach(p=>names[p.id]=p.name);const by={};rows.forEach(r=>{const loc=String(r.location_code||r.location||r.location_name||'').toUpperCase();const key=r.product_id||r.product_name;if(!by[key])by[key]={name:r.product_name||names[r.product_id]||'—',STORE:0,WAAFI:0,HIPOWER:0};if(locs.includes(loc))by[key][loc]+=Number(r.quantity||0)});const a=Object.values(by);const totals=a.reduce((x,r)=>({STORE:x.STORE+r.STORE,WAAFI:x.WAAFI+r.WAAFI,HIPOWER:x.HIPOWER+r.HIPOWER}),{STORE:0,WAAFI:0,HIPOWER:0});document.getElementById('content').innerHTML='<div class="card"><h3>Physical Stock Summary</h3><p class="muted">Live stock remaining by location.</p><div class="tablewrap"><table class="table"><thead><tr><th>Laptop</th><th>Store</th><th>Waafi</th><th>Hipower</th><th>Total</th></tr></thead><tbody>'+a.map(r=>'<tr><td>'+esc(r.name)+'</td><td>'+r.STORE+'</td><td>'+r.WAAFI+'</td><td>'+r.HIPOWER+'</td><td>'+(r.STORE+r.WAAFI+r.HIPOWER)+'</td></tr>').join('')+'<tr><th>TOTAL</th><th>'+totals.STORE+'</th><th>'+totals.WAAFI+'</th><th>'+totals.HIPOWER+'</th><th>'+(totals.STORE+totals.WAAFI+totals.HIPOWER)+'</th></tr></tbody></table></div></div>';}
 async function priceList(){document.getElementById('content').innerHTML='<div class="card"><h3>Price List</h3><p class="muted">Current Store standard selling prices.</p><div class="tablewrap"><table class="table"><thead><tr><th>#</th><th>Laptop</th><th>Price</th></tr></thead><tbody>'+products.map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td><strong>'+money(p.standard_price)+'</strong></td></tr>').join('')+'</tbody></table></div></div>';}
-async function banksPage(){
- const jobs=[
-  q('macalim_bank_report'),
-  q('macalim_due_report',{order:'shop_code',asc:true}),
-  q('cash_position_summary'),
-  (async()=>{const {data,error}=await sb.from('money_transactions').select('transaction_date,transaction_type,amount,reference,from_account:money_accounts!money_transactions_from_account_fkey(code),to_account:money_accounts!money_transactions_to_account_fkey(code)').eq('status','active').order('transaction_date',{ascending:false});if(error)throw error;return data||[]})()
- ];
- const settled=await Promise.allSettled(jobs);
- const bankErrors=[];
- const value=i=>{if(settled[i].status==='fulfilled')return settled[i].value;bankErrors.push((['Macalim summary','shop dues','Elmi-29 balance','bank statements'][i])+': '+(settled[i].reason?.message||String(settled[i].reason)));return []};
- const b=value(0),d=value(1),el=value(2),rows=value(3);
- const mh=b[0]||{};
- const macRows=rows.filter(r=>r.from_account?.code==='MACALIM'||r.to_account?.code==='MACALIM');
- const elRows=rows.filter(r=>r.from_account?.code==='ELMI-29'||r.to_account?.code==='ELMI-29');
- const statement=arr=>arr.map(r=>'<tr><td>'+esc(r.transaction_date)+'</td><td>'+esc(r.transaction_type)+'</td><td>'+esc(r.from_account?.code||'—')+' → '+esc(r.to_account?.code||'—')+'</td><td>'+money(r.amount)+'</td><td>'+esc(r.reference||'')+'</td></tr>').join('');
- document.getElementById('content').innerHTML='<div class="grid"><div class="card"><h3>🏦 Macalim</h3><div class="metric"><div class="k">Shop sales due</div><div class="v">'+money(mh.shop_sales_due_to_macalim)+'</div></div><p>Actually received from shops: <strong>'+money(mh.actually_received_by_macalim)+'</strong></p><p>Recorded unpaid shop due: <strong>'+money(mh.unpaid_shop_due)+'</strong></p><p>Sent manually to Elmi-29: <strong>'+money(mh.sent_to_elmi29)+'</strong></p><p>Estimated holding from sales less transfers: <strong>'+money(mh.estimated_macalim_actual_cash)+'</strong></p><p class="notice">Macalim → Elmi-29 is manual only.</p></div><div class="card"><h3>🏦 Elmi-29</h3><div class="metric"><div class="k">Recorded inflows</div><div class="v">'+money((el[0]||{}).elmi29_recorded_inflows)+'</div></div><p>Store customer receipts: <strong>'+money((el[0]||{}).store_customer_receipts)+'</strong></p><p>Macalim transfers: <strong>'+money((el[0]||{}).macalim_to_elmi29)+'</strong></p></div></div><div class="card panel"><h3>Macalim Due by Shop</h3><div class="tablewrap"><table class="table"><thead><tr><th>Shop</th><th>Sales due</th><th>Paid to Macalim</th><th>Outstanding</th></tr></thead><tbody>'+d.map(x=>'<tr><td>'+esc(x.shop_name)+'</td><td>'+money(x.sales_due_to_macalim)+'</td><td>'+money(x.paid_to_macalim)+'</td><td><strong>'+money(x.outstanding_to_macalim)+'</strong></td></tr>').join('')+'</tbody></table></div></div><div class="card panel"><h3>Macalim Statement</h3><div class="tablewrap"><table class="table"><thead><tr><th>Date</th><th>Type</th><th>Flow</th><th>Amount</th><th>Reference</th></tr></thead><tbody>'+statement(macRows)+'</tbody></table></div></div><div class="card panel"><h3>Elmi-29 Statement</h3><div class="tablewrap"><table class="table"><thead><tr><th>Date</th><th>Type</th><th>Flow</th><th>Amount</th><th>Reference</th></tr></thead><tbody>'+statement(elRows)+'</tbody></table></div></div>';
- if(bankErrors.length)document.getElementById('content').insertAdjacentHTML('afterbegin','<div class="notice"><strong>Some bank details could not load:</strong><br>'+bankErrors.map(esc).join('<br>')+'</div>');
-}
+async function banksPage(){const [b,d,el,tx]=await Promise.all([q('macalim_bank_report'),q('macalim_due_report',{order:'shop_code',asc:true}),q('cash_position_summary'),sb.from('money_transactions').select('transaction_date,transaction_type,amount,reference,from_account:money_accounts!money_transactions_from_account_fkey(code),to_account:money_accounts!money_transactions_to_account_fkey(code)').eq('status','active').order('transaction_date',{ascending:false})]);const mh=b[0]||{},rows=tx.data||[];const macRows=rows.filter(r=>r.from_account?.code==='MACALIM'||r.to_account?.code==='MACALIM');const elRows=rows.filter(r=>r.from_account?.code==='ELMI-29'||r.to_account?.code==='ELMI-29');const statement=arr=>arr.map(r=>'<tr><td>'+r.transaction_date+'</td><td>'+esc(r.transaction_type)+'</td><td>'+esc(r.from_account?.code||'—')+' → '+esc(r.to_account?.code||'—')+'</td><td>'+money(r.amount)+'</td><td>'+esc(r.reference||'')+'</td></tr>').join('');document.getElementById('content').innerHTML='<div class="grid"><div class="card"><h3>🏦 Macalim</h3><div class="metric"><div class="k">Shop sales due</div><div class="v">'+money(mh.shop_sales_due_to_macalim)+'</div></div><p>Actually received from shops: <strong>'+money(mh.actually_received_by_macalim)+'</strong></p><p>Recorded unpaid shop due: <strong>'+money(mh.unpaid_shop_due)+'</strong></p><p>Sent manually to Elmi-29: <strong>'+money(mh.sent_to_elmi29)+'</strong></p><p>Estimated holding from sales less transfers: <strong>'+money(mh.estimated_macalim_actual_cash)+'</strong></p><p class="notice">Macalim → Elmi-29 is manual only.</p></div><div class="card"><h3>🏦 Elmi-29</h3><div class="metric"><div class="k">Recorded inflows</div><div class="v">'+money((el[0]||{}).elmi29_recorded_inflows)+'</div></div><p>Store customer receipts: <strong>'+money((el[0]||{}).store_customer_receipts)+'</strong></p><p>Macalim transfers: <strong>'+money((el[0]||{}).macalim_to_elmi29)+'</strong></p></div></div><div class="card panel"><h3>Macalim Due by Shop</h3><div class="tablewrap"><table class="table"><thead><tr><th>Shop</th><th>Sales due</th><th>Paid to Macalim</th><th>Outstanding</th></tr></thead><tbody>'+d.map(x=>'<tr><td>'+esc(x.shop_name)+'</td><td>'+money(x.sales_due_to_macalim)+'</td><td>'+money(x.paid_to_macalim)+'</td><td><strong>'+money(x.outstanding_to_macalim)+'</strong></td></tr>').join('')+'</tbody></table></div></div><div class="card panel"><h3>Macalim Statement</h3><div class="tablewrap"><table class="table"><thead><tr><th>Date</th><th>Type</th><th>Flow</th><th>Amount</th><th>Reference</th></tr></thead><tbody>'+statement(macRows)+'</tbody></table></div></div><div class="card panel"><h3>Elmi-29 Statement</h3><div class="tablewrap"><table class="table"><thead><tr><th>Date</th><th>Type</th><th>Flow</th><th>Amount</th><th>Reference</th></tr></thead><tbody>'+statement(elRows)+'</tbody></table></div></div>'}
 function settings(){document.getElementById('content').innerHTML='<div class="grid"><div class="card"><h3>Cloud</h3><p>Supabase connected</p><p class="ok">Live / Production</p></div><div class="card"><h3>Roles</h3><p>Admin • Manager • Staff • Viewer</p></div><div class="card"><h3>Languages</h3><p>English • Somali</p></div><div class="card"><h3>Pricing</h3><p>Current Store standard prices apply to current invoices. Future shipments may use new prices.</p></div></div>'}
 init();
 </script></body></html>
