@@ -87,7 +87,7 @@ async function qAll(table,order=null,asc=false){
  const rows=[];let offset=0;
  while(true){
   let query=sb.from(table).select('*');
-  if(order){query=query.order(order,{ascending:asc});if(order==='transaction_date')query=query.order('transaction_no',{ascending:asc}).order('entry_id',{ascending:asc});}
+  if(order){query=query.order(order,{ascending:asc});if(order==='transaction_date'&&(table==='macalim_statement_report'||table==='elmi29_statement_report'))query=query.order('transaction_no',{ascending:asc}).order('entry_id',{ascending:asc});}
   const {data,error}=await query.range(offset,offset+499);
   if(error)throw error;
   const batch=data||[];rows.push(...batch);
