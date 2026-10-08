@@ -83,8 +83,54 @@ async function saveBankTransfer(){try{const amount=Number(btAmount.value);if(!am
 async function saveStoreReceipt(){try{const amount=Number(srAmount.value);if(!amount||amount<=0)throw Error('Enter a valid amount.');const from=accounts.find(a=>a.code==='CUSTOMER'),to=accounts.find(a=>a.code==='ELMI-29');if(!from||!to)throw Error('Customer or Elmi-29 account not found.');const {error}=await sb.from('money_transactions').insert({transaction_type:'store_sale_receipt',transaction_date:srDate.value,from_account:from.id,to_account:to.id,amount,reference:srRef.value.trim()||null,notes:srNotes.value.trim()||null,status:'active',device_name:'E-Ledger Web'});if(error)throw error;alert('Store receipt saved.');moneyPage()}catch(e){alert(e.message)}}
 async function saveExpense(){try{const amount=Number(exAmount.value);if(!amount||amount<=0)throw Error('Enter a valid amount.');const from=accounts.find(a=>a.id===exFrom.value);if(!from)throw Error('Select the payment account.');const {error}=await sb.from('money_transactions').insert({transaction_type:'expense',transaction_date:exDate.value,from_account:from.id,to_account:null,amount,expense_category_id:exCat.value||null,reference:exRef.value.trim()||null,notes:exNotes.value.trim()||null,status:'active',device_name:'E-Ledger Web'});if(error)throw error;alert('Expense saved.');moneyPage()}catch(e){alert(e.message)}}
 async function saveAccountTransfer(){try{const from=atFrom.value,to=atTo.value,amount=Number(atAmount.value);if(from===to)throw Error('FROM and TO must be different.');if(!amount||amount<=0)throw Error('Enter a valid amount.');const {error}=await sb.from('money_transactions').insert({transaction_type:'account_transfer',transaction_date:atDate.value,from_account:from,to_account:to,amount,reference:atRef.value.trim()||null,notes:atNotes.value.trim()||null,status:'active',device_name:'E-Ledger Web'});if(error)throw error;alert('Account transfer saved.');moneyPage()}catch(e){alert(e.message)}}
-async function reports(){const [p,s,m]=await Promise.all([q('product_movement_report',{order:'transaction_date',asc:false,limit:100}),q('shop_performance_report',{order:'transaction_date',asc:false,limit:100}),q('sale_profit_report',{order:'transaction_date',asc:false,limit:100})]);document.getElementById('content').innerHTML='<div class="card"><h3>Reports</h3><div class="actions"><button class="secondary" onclick="renderReport(\'mov\')">Product movement</button><button class="secondary" onclick="renderReport(\'shop\')">Shop performance</button><button class="secondary" onclick="renderReport(\'profit\')">Sale profit</button></div><div id="reportBody" class="panel"><p class="muted">Choose a report.</p></div></div>';window._reports={mov:p,shop:s,profit:m}}
-function renderReport(t){const a=window._reports[t]||[];document.getElementById('reportBody').innerHTML='<div class="tablewrap"><table class="table"><thead><tr>'+Object.keys(a[0]||{}).slice(0,9).map(k=>'<th>'+esc(k)+'</th>').join('')+'</tr></thead><tbody>'+a.slice(0,100).map(r=>'<tr>'+Object.keys(a[0]||{}).slice(0,9).map(k=>'<td>'+esc(r[k])+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>'}
+async function qAll(table,order=null,asc=false){
+ const rows=[];let offset=0;
+ while(true){
+  let query=sb.from(table).select('*');
+  if(order)query=query.order(order,{ascending:asc});
+  const {data,error}=await query.range(offset,offset+499);
+  if(error)throw error;
+  const batch=data||[];rows.push(...batch);
+  if(batch.length<500)break;
+  offset+=500;
+ }
+ return rows;
+}
+async function reports(){
+ const [mov,shop,profit]=await Promise.all([
+  qAll('product_movement_report','transaction_date',true),
+  qAll('shop_performance_report','transaction_date',false),
+  qAll('sale_profit_report','transaction_date',false)
+ ]);
+ const quick=products.filter(p=>/840\s*G[36]/i.test(p.name));
+ document.getElementById('content').innerHTML='<div class="card"><h3>Reports</h3><p class="muted">Choose a laptop for a complete movement history. The report includes every recorded transfer, sale, return, adjustment and void.</p><div class="formgrid"><div><label>Laptop</label><select id="movementProduct"><option value="">Choose a laptop</option>'+productOptions()+'</select></div></div><div class="actions">'+quick.map(p=>'<button class="secondary" onclick="quickMovement(\''+p.id+'\')">Quick report: '+esc(p.name)+'</button>').join('')+'<button onclick="showSelectedMovement()">Show movement</button><button class="secondary" onclick="renderReport(\'shop\')">Shop performance</button><button class="secondary" onclick="renderReport(\'profit\')">Sale profit</button></div><div id="reportSummary" class="panel"></div><div id="reportBody" class="panel"><p class="muted">Choose a laptop to begin.</p></div></div>';
+ window._reports={mov:mov,shop:shop,profit:profit};
+}
+function quickMovement(id){const el=document.getElementById('movementProduct');if(el)el.value=id;showSelectedMovement()}
+function showSelectedMovement(){renderReport('mov')}
+function reportMovementRows(){
+ const id=document.getElementById('movementProduct')?.value||'';
+ const rows=(window._reports?.mov||[]).filter(r=>!id||String(r.product_id)===String(id)).sort((a,b)=>String(a.transaction_date).localeCompare(String(b.transaction_date))||Number(a.transaction_no||0)-Number(b.transaction_no||0));
+ return rows;
+}
+function renderReport(type){
+ const report=window._reports||{};
+ if(type==='mov'){
+  const rows=reportMovementRows(),selected=products.find(p=>String(p.id)===String(document.getElementById('movementProduct')?.value||''));
+  const received=rows.filter(r=>['STORE','WAAFI','HIPOWER'].includes(String(r.to_location||'').toUpperCase())).reduce((n,r)=>n+Number(r.quantity||0),0);
+  const sold=rows.filter(r=>r.transaction_type==='sale'&&r.status==='active').reduce((n,r)=>n+Number(r.quantity||0),0);
+  const voided=rows.filter(r=>r.status==='void').length;
+  document.getElementById('reportSummary').innerHTML='<div class="grid">'+metric('Movement records',String(rows.length))+metric('Units received into business locations',String(received))+metric('Active units sold',String(sold))+metric('Voided records',String(voided))+'</div>';
+  if(!selected&&!rows.length){document.getElementById('reportBody').innerHTML='<p class="muted">Choose a laptop, for example HP 840 G6 i5 or HP 840 G6 i7.</p>';return}
+  const title=selected?selected.name:'All products';
+  document.getElementById('reportBody').innerHTML='<div class="card panel"><h3>'+esc(title)+' — complete movement history <span class="muted">('+rows.length+')</span></h3><div class="tablewrap"><table class="table"><thead><tr><th>Date</th><th>No.</th><th>Type</th><th>From</th><th>To</th><th>Qty</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.transaction_date)+'</td><td>'+esc(r.transaction_no)+'</td><td>'+esc(r.transaction_type)+'</td><td>'+esc(r.from_location_name||r.from_location||'—')+'</td><td>'+esc(r.to_location_name||r.to_location||'—')+'</td><td>'+esc(r.quantity??'')+'</td><td>'+money(r.total_amount||0)+'</td><td>'+esc(r.status||'')+'</td><td>'+esc(r.notes||'')+'</td></tr>').join('')+'</tbody></table></div></div>';
+  return;
+ }
+ const rows=report[type]||[];
+ document.getElementById('reportSummary').innerHTML='';
+ const keys=Object.keys(rows[0]||{}).slice(0,12);
+ document.getElementById('reportBody').innerHTML='<div class="tablewrap"><table class="table"><thead><tr>'+keys.map(k=>'<th>'+esc(k.replace(/_/g,' '))+'</th>').join('')+'</tr></thead><tbody>'+rows.slice(0,500).map(r=>'<tr>'+keys.map(k=>'<td>'+esc(r[k]??'')+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';
+}
 async function aiPage(){document.getElementById('content').innerHTML='<div class="card"><h3>🤖 AI / Smart Entry</h3><p class="muted">Write an entry in English or Somali. The system creates a review draft first. Nothing is saved as a business transaction until you confirm.</p><textarea id="aiText" rows="5" placeholder="Example: Waafi sold 2 HP 840 G3 i5 today, each 21000\nTusaale: Waafi wuxuu iibiyay 2 HP 840 G3 i5 maanta, midkiiba 21000"></textarea><div class="actions"><button onclick="parseAI()">Create review</button></div><div id="aiReview" class="panel"></div></div>'}
 async function parseAI(){const raw=aiText.value.trim();if(!raw)return;const lower=raw.toLowerCase();let type=lower.includes('sold')||lower.includes('iib')?'sale':lower.includes('transfer')||lower.includes('wareej')?'stock_transfer':'unknown';let prod=products.find(p=>lower.includes(p.name.toLowerCase()));let shop=locations.find(l=>lower.includes(l.code.toLowerCase())||lower.includes(l.name.toLowerCase()));const nums=[...raw.matchAll(/\b\d+(?:\.\d+)?\b/g)].map(m=>Number(m[0]));let qty=nums.find(n=>Number.isInteger(n)&&n>0&&n<100)||1;let price=nums.length?nums[nums.length-1]:0;const payload={type,product_id:prod?.id||null,product_name:prod?.name||null,shop:shop?.code||null,quantity:qty,unit_price:price,raw};const {data,error}=await sb.from('ai_entry_drafts').insert({raw_text:raw,language:/\b(wuxuu|iibiyay|maanta|midkiiba)\b/i.test(raw)?'so':'en',parsed_payload:payload,status:'draft',created_by:me.id}).select().single();if(error){aiReview.innerHTML='<p class="error">'+esc(error.message)+'</p>';return}aiReview.innerHTML='<div class="card"><h4>Review before saving</h4><pre style="white-space:pre-wrap">'+esc(JSON.stringify(payload,null,2))+'</pre><p class="notice">This is a review draft only. The business transaction has NOT been saved.</p><button onclick="confirmAI(\''+data.id+'\')">Confirm draft</button> <button class="danger" onclick="cancelAI(\''+data.id+'\')">Cancel</button></div>'}
 async function confirmAI(id){const {data:d}=await sb.from('ai_entry_drafts').select('*').eq('id',id).single();if(!d)return;const p=d.parsed_payload;if(p.type!=='sale'||!p.product_id||!p.shop){alert('This draft is incomplete. Use the normal Sales screen or improve the sentence.');return}const from=locations.find(l=>l.code===p.shop),customer=locations.find(l=>l.code==='CUSTOMER');const {error}=await sb.from('ledger_transactions').insert({transaction_type:'sale',transaction_date:new Date().toISOString().slice(0,10),from_location:from.id,to_location:customer.id,product_id:p.product_id,quantity:p.quantity,unit_price:p.unit_price,total_amount:p.quantity*p.unit_price,status:'active',notes:'Confirmed from AI/Smart Entry'});if(error){alert(error.message);return}await sb.from('ai_entry_drafts').update({status:'confirmed',confirmed_by:me.id,confirmed_at:new Date().toISOString()}).eq('id',id);alert('Confirmed and saved.');aiPage()}
