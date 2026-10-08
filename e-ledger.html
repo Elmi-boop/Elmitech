@@ -196,23 +196,15 @@ function exportCurrentReportCsv(filename){
  const tables=[...document.querySelectorAll('#content table')];
  if(!tables.length){alert('There is no table to export yet.');return}
  const brand=document.querySelector('#content .export-branding'),lines=csvReportHeader(brand?.dataset.reportName||document.getElementById('title')?.textContent,brand?.dataset.reportDate||localISODate());
- tables.forEach((table,index)=>{if(index)lines.push('');[...table.rows].forEach(row=>lines.push([...row.cells].map(cell=>csvCell(cell.innerText||'')).join(','))});
+ tables.forEach((table,index)=>{
+  if(index)lines.push('');
+  [...table.rows].forEach(row=>{
+   lines.push([...row.cells].map(cell=>csvCell(cell.innerText||'')).join(','));
+  });
+ });
  const csv=String.fromCharCode(0xFEFF)+lines.join(String.fromCharCode(13,10)),blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
  a.href=url;a.download=filename||'e-ledger-report.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
-}
-function printBankStatement(id){
- const target=document.getElementById(id);
- if(!target)return;
- const title=id==='macalimStatement'?'Macalim full statement':id==='elmiStatement'?'Elmi-29 full statement':'Bank statement';
- ensureReportBranding(target,title);
- target.classList.remove('hidden');
- const hidden=[...document.querySelectorAll('#content > *')].filter(x=>x!==target);
- hidden.forEach(x=>x.classList.add('print-hidden'));
- const restore=()=>{hidden.forEach(x=>x.classList.remove('print-hidden'));window.removeEventListener('afterprint',restore)};
- window.addEventListener('afterprint',restore);
- window.print();
-}
-function exportBankStatementExcel(id,filename){
+}function exportBankStatementExcel(id,filename){
  const target=document.getElementById(id);
  const table=target?.querySelector('table');
  if(!table){alert('Open this account report first.');return}
