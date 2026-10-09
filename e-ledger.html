@@ -139,7 +139,7 @@ function renderReport(type){
  document.getElementById('reportBody').innerHTML='<div class="tablewrap"><table class="table"><thead><tr>'+keys.map(k=>'<th>'+esc(k.replace(/_/g,' '))+'</th>').join('')+'</tr></thead><tbody>'+rows.slice(0,500).map(r=>'<tr>'+keys.map(k=>'<td>'+esc(r[k]??'')+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';
 }
 async function aiPage(){document.getElementById('content').innerHTML='<div class="card"><h3>🤖 AI / Smart Entry</h3><p class="muted">Write any transaction in English or Somali. AI matches laptop names from your real stock list and creates a review draft. Nothing is saved until you confirm.</p><textarea id="aiText" rows="5" placeholder="1030 G4 i7 2pc\nWaafi sold 2 HP 840 G3 i5, each 21000\nStore sent 5 HP 840 G6 i7 to Waafi\nMacalim sent 50000 to Elmi-29"></textarea><div class="actions"><button onclick="parseAI()">Create review</button></div><div id="aiReview" class="panel"></div></div>'}
-function aiNorm(s){return String(s||'').toLowerCase().replace(/(\d)(g\d+)/g,'$1 $2').replace(/[\u2044/_,;:()\-\u2013=]/g,' ').replace(/\b(ssd|ram|gb|giga|pcs?|pieces?|piece|units?)\b/g,' ').replace(/\s+/g,' ').trim()}
+function aiNorm(s){return String(s||'').toLowerCase().replace(/(\d)(g\d+)/g,'$1 $2').replace(/(\d+)\s*gb\b/g,'$1').replace(/(\d+)(?:pcs?|pieces?|units?)\b/g,'$1').replace(/[\u2044/_,;:()\-\u2013=]/g,' ').replace(/\b(ssd|ram|giga|pcs?|pieces?|piece|units?)\b/g,' ').replace(/\s+/g,' ').trim()}
 function aiTokens(s){return aiNorm(s).split(/\s+/).filter(Boolean)}
 function aiExpandedTokens(s){return aiTokens(s).flatMap(t=>{const m=t.match(/^(16|8|4)(128|256|512)$/);return m?[m[1],m[2]]:[t]})}
 function aiFindProduct(raw){
