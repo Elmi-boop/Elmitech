@@ -310,10 +310,21 @@ function historyMoneyRows(rows){
   return {date:r.transaction_date||r.created_at?.slice(0,10)||'—',no:r.transaction_no||'—',source:'Money',category,movement:from+' → '+to,item:'Money',quantity:'—',flow:'IN '+to+' / OUT '+from,amount:money(amount),status:String(r.status||'active'),notes:[r.reference||'',r.notes||''].filter(Boolean).join(' • ')||'—',sortNo:Number(r.transaction_no||0)};
  });
 }
+
+function setHistoryRange(kind){
+ const endDate=new Date(),fromDate=new Date(endDate);
+ if(kind==='yesterday'){endDate.setDate(endDate.getDate()-1);fromDate.setTime(endDate.getTime())}
+ else fromDate.setDate(fromDate.getDate()-6);
+ const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+ const from=document.getElementById('historyFrom'),to=document.getElementById('historyTo');
+ if(from&&to){from.value=iso(fromDate);to.value=iso(endDate);loadHistory()}
+}
+function historyYesterday(){setHistoryRange('yesterday')}
+function historyLast7(){setHistoryRange('last7')}
 function historyPage(){
  const end=localISODate(),d=new Date();d.setDate(d.getDate()-6);const start=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
  document.getElementById('subtitle').textContent='Review saved records by date and category';
- document.getElementById('content').innerHTML='<div class="card"><h3>🕘 Transaction History</h3><p class="muted">Review every saved stock and money record. Voided records remain visible and are marked <strong>Void</strong>; they do not affect current balances.</p><div class="formgrid"><label>From date<input id="historyFrom" type="date" value="'+start+'"></label><label>To date<input id="historyTo" type="date" value="'+end+'"></label><label>Category<select id="historyCategory"><option value="">All categories</option><option>Invoice</option><option>Cash sale</option><option>Merchandise</option><option>Credit</option><option>Credit return</option><option>Stock adjustment</option><option>Stock movement</option><option>Money</option></select></label></div><div class="actions"><button class="primary" onclick="loadHistory()">Apply filters</button><button class="secondary" onclick="historyPage()">Reset</button></div><div id="historyMessage" class="muted">Loading saved records…</div><div id="historyResults"></div></div>';
+ document.getElementById('content').innerHTML='<div class="card"><h3>🕘 Transaction History</h3><p class="muted">Review every saved stock and money record. Voided records remain visible and are marked <strong>Void</strong>; they do not affect current balances.</p><div class="formgrid"><label>From date<input id="historyFrom" type="date" value="'+start+'"></label><label>To date<input id="historyTo" type="date" value="'+end+'"></label><label>Category<select id="historyCategory"><option value="">All categories</option><option>Invoice</option><option>Cash sale</option><option>Merchandise</option><option>Credit</option><option>Credit return</option><option>Stock adjustment</option><option>Stock movement</option><option>Money</option></select></label></div><div class="actions"><button class="primary" onclick="loadHistory()">Apply filters</button><button class="secondary" onclick="historyYesterday()">Yesterday</button><button class="secondary" onclick="historyLast7()">Last 7 days</button><button class="secondary" onclick="historyPage()">Reset</button></div><div id="historyMessage" class="muted">Loading saved records…</div><div id="historyResults"></div></div>';
  loadHistory();
 }
 async function loadHistory(){
