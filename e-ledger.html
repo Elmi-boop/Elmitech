@@ -296,21 +296,30 @@ function historyLedgerRows(rows){
   const fromCode=String(fromObj?.code||r.from_location||'').toUpperCase(),toCode=String(toObj?.code||r.to_location||'').toUpperCase();
   const category=movementAccounting({...r,from_location:fromCode,to_location:toCode});
   const fromName=fromObj?.name||fromObj?.code||'—',toName=toObj?.name||toObj?.code||'—';
-  const qty=Number(r.quantity||0),type=String(r.transaction_type||'').toLowerCase();
-  const p=products.find(v=>String(v.id)===String(r.product_id));
+  const qty=Number(r.quantity||0),type=String(r.transaction_type||'').toLowerCase(),p=products.find(v=>String(v.id)===String(r.product_id));
   const movement=type==='stock_adjustment'?'Stock adjustment at '+(toName!=='—'?toName:fromName):fromName+' → '+toName;
   const flow=type==='sale'?'OUT '+fromName+' ('+qty+' pcs)':type==='stock_adjustment'?'ADJUST '+(qty>=0?'+':'')+qty+' pcs at '+(toName!=='—'?toName:fromName):'OUT '+fromName+' '+qty+' pcs / IN '+toName+' '+qty+' pcs';
-  const amount=r.invoice_amount??r.total_amount??(Number(r.unit_price||0)*qty);
-  return {date:r.transaction_date||r.created_at?.slice(0,10)||'—',no:r.transaction_no||'—',source:'Stock',category,movement,item:p?.name||r.product_name||'—',quantity:qty?qty+' pcs':'—',flow,amount:amount===null||amount===undefined||amount===''?'—':money(amount),status:String(r.status||'active'),notes:[r.business_invoice_no?'Invoice '+r.business_invoice_no:'',r.invoice_notes||'',r.notes||''].filter(Boolean).join(' • ')||'—',sortNo:Number(r.transaction_no||0)};
+  const amountRaw=r.invoice_amount??r.total_amount??(Number(r.unit_price||0)*qty),amountValue=Number(amountRaw||0);
+  return {date:r.transaction_date||r.created_at?.slice(0,10)||'—',no:r.transaction_no||'—',source:'Stock',category,movement,item:p?.name||r.product_name||'—',quantity:qty?qty+' pcs':'—',flow,amount:money(amountValue),amountValue,unitPrice:r.unit_price===null||r.unit_price===undefined?'—':money(r.unit_price),lineTotal:money(Number(r.total_amount??amountValue)||0),recordType:r.transaction_type||'—',from:fromName,to:toName,invoiceNo:r.business_invoice_no||'—',invoiceNotes:r.invoice_notes||'—',status:String(r.status||'active'),notes:r.notes||'—',sortNo:Number(r.transaction_no||0)};
  });
 }
 function historyMoneyRows(rows){
  return rows.map(r=>{
   const category=historyMoneyCategory(r),from=historyAccount(r.from_account),to=historyAccount(r.to_account),amount=Number(r.amount||0);
-  return {date:r.transaction_date||r.created_at?.slice(0,10)||'—',no:r.transaction_no||'—',source:'Money',category,movement:from+' → '+to,item:'Money',quantity:'—',flow:'IN '+to+' / OUT '+from,amount:money(amount),status:String(r.status||'active'),notes:[r.reference||'',r.notes||''].filter(Boolean).join(' • ')||'—',sortNo:Number(r.transaction_no||0)};
+  return {date:r.transaction_date||r.created_at?.slice(0,10)||'—',no:r.transaction_no||'—',source:'Money',category,movement:from+' → '+to,item:'Money',quantity:'—',flow:'IN '+to+' / OUT '+from,amount:money(amount),amountValue:amount,unitPrice:'—',lineTotal:money(amount),recordType:r.transaction_type||'—',from,to,invoiceNo:r.reference||'—',invoiceNotes:'—',status:String(r.status||'active'),notes:r.notes||'—',sortNo:Number(r.transaction_no||0)};
  });
 }
-
+function openHistoryRecord(index){
+ const r=(window._historyRows||[])[Number(index)],detail=document.getElementById('historyDetail');
+ if(!r||!detail)return;
+ detail.innerHTML='<div class="card"><div class="actions"><button class="secondary" onclick="closeHistoryRecord()">× Close details</button></div><h3>'+esc(r.category)+' — transaction '+esc(r.no)+'</h3><div class="tablewrap"><table class="table"><tbody><tr><th>Date</th><td>'+esc(r.date)+'</td><th>Status</th><td>'+esc(r.status==='void'?'Void':'Active')+'</td></tr><tr><th>Record type</th><td>'+esc(r.recordType)+'</td><th>Source</th><td>'+esc(r.source)+'</td></tr><tr><th>Movement</th><td>'+esc(r.movement)+'</td><th>Stock / money flow</th><td>'+esc(r.flow)+'</td></tr><tr><th>Item</th><td>'+esc(r.item)+'</td><th>Pieces</th><td>'+esc(r.quantity)+'</td></tr><tr><th>Unit price</th><td>'+esc(r.unitPrice)+'</td><th>Line total</th><td><strong>'+esc(r.lineTotal)+'</strong></td></tr><tr><th>Invoice / reference</th><td>'+esc(r.invoiceNo)+'</td><th>Invoice amount</th><td><strong>'+esc(r.amount)+'</strong></td></tr><tr><th>Invoice notes</th><td colspan="3">'+esc(r.invoiceNotes)+'</td></tr><tr><th>Notes</th><td colspan="3">'+esc(r.notes)+'</td></tr></tbody></table></div></div>';
+ detail.classList.remove('hidden');
+ detail.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function closeHistoryRecord(){
+ const detail=document.getElementById('historyDetail');
+ if(detail){detail.classList.add('hidden');detail.innerHTML=''}
+}
 function setHistoryRange(kind){
  const endDate=new Date(),fromDate=new Date(endDate);
  if(kind==='yesterday'){endDate.setDate(endDate.getDate()-1);fromDate.setTime(endDate.getTime())}
@@ -324,22 +333,23 @@ function historyLast7(){setHistoryRange('last7')}
 function historyPage(){
  const end=localISODate(),d=new Date();d.setDate(d.getDate()-6);const start=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
  document.getElementById('subtitle').textContent='Review saved records by date and category';
- document.getElementById('content').innerHTML='<div class="card"><h3>🕘 Transaction History</h3><p class="muted">Review every saved stock and money record. Voided records remain visible and are marked <strong>Void</strong>; they do not affect current balances.</p><div class="formgrid"><label>From date<input id="historyFrom" type="date" value="'+start+'"></label><label>To date<input id="historyTo" type="date" value="'+end+'"></label><label>Category<select id="historyCategory"><option value="">All categories</option><option>Invoice</option><option>Cash sale</option><option>Merchandise</option><option>Credit</option><option>Credit return</option><option>Stock adjustment</option><option>Stock movement</option><option>Money</option></select></label></div><div class="actions"><button class="primary" onclick="loadHistory()">Apply filters</button><button class="secondary" onclick="historyYesterday()">Yesterday</button><button class="secondary" onclick="historyLast7()">Last 7 days</button><button class="secondary" onclick="historyPage()">Reset</button></div><div id="historyMessage" class="muted">Loading saved records…</div><div id="historyResults"></div></div>';
+ document.getElementById('content').innerHTML='<div class="card"><h3>🕘 Transaction History</h3><p class="muted">Review every saved stock and money record. Click any row to see the full invoice or record details. Voided records remain visible and are marked <strong>Void</strong>; they do not affect current balances.</p><div class="formgrid"><label>From date<input id="historyFrom" type="date" value="'+start+'"></label><label>To date<input id="historyTo" type="date" value="'+end+'"></label><label>Category<select id="historyCategory"><option value="">All categories</option><option>Invoice</option><option>Cash sale</option><option>Merchandise</option><option>Credit</option><option>Credit return</option><option>Stock adjustment</option><option>Stock movement</option><option>Money</option></select></label></div><div class="actions"><button class="primary" onclick="loadHistory()">Apply filters</button><button class="secondary" onclick="historyYesterday()">Yesterday</button><button class="secondary" onclick="historyLast7()">Last 7 days</button><button class="secondary" onclick="historyPage()">Reset</button></div><div id="historyMessage" class="muted">Loading saved records…</div><div id="historyResults"></div></div><div id="historyDetail" class="hidden"></div>';
  loadHistory();
 }
 async function loadHistory(){
- const msg=document.getElementById('historyMessage'),out=document.getElementById('historyResults');
+ const msg=document.getElementById('historyMessage'),out=document.getElementById('historyResults'),detail=document.getElementById('historyDetail');
  if(!msg||!out)return;
- msg.className='muted';msg.textContent='Loading saved records…';out.innerHTML='';
+ msg.className='muted';msg.textContent='Loading saved records…';out.innerHTML='';if(detail){detail.classList.add('hidden');detail.innerHTML=''}
  try{
   const from=document.getElementById('historyFrom').value,to=document.getElementById('historyTo').value,category=document.getElementById('historyCategory').value;
   if(from&&to&&from>to)throw new Error('From date cannot be after To date.');
   const [ledger,moneyRows]=await Promise.all([q('ledger_transactions',{order:'transaction_date',asc:false}),q('money_transactions',{order:'transaction_date',asc:false})]);
   const rows=historyLedgerRows(ledger).concat(historyMoneyRows(moneyRows)).filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&(!category||r.category===category)).sort((a,b)=>String(b.date).localeCompare(String(a.date))||b.sortNo-a.sortNo);
-  const active=rows.filter(r=>r.status!=='void'),total=active.reduce((s,r)=>s+(r.source==='Money'?Number(String(r.amount).replace(/[^\d.-]/g,''))||0:(r.amount==='—'?0:Number(String(r.amount).replace(/[^\d.-]/g,''))||0)),0);
+  window._historyRows=rows;
+  const active=rows.filter(r=>r.status!=='void'),total=active.reduce((s,r)=>s+Number(r.amountValue||0),0);
   msg.textContent=rows.length+' record'+(rows.length===1?'':'s')+' found • '+active.length+' active • Active amount '+money(total);
   if(!rows.length){out.innerHTML='<div class="notice">No records match these dates and category.</div>';return}
-  out.innerHTML='<div class="tablewrap"><table class="table"><thead><tr><th>Date</th><th>No.</th><th>Source</th><th>Category</th><th>Movement</th><th>Item</th><th>Qty</th><th>Stock / money flow</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>'+rows.map(r=>'<tr class="'+(r.status==='void'?'muted':'')+'"><td>'+esc(r.date)+'</td><td>'+esc(r.no)+'</td><td>'+esc(r.source)+'</td><td><strong>'+esc(r.category)+'</strong></td><td>'+esc(r.movement)+'</td><td>'+esc(r.item)+'</td><td>'+esc(r.quantity)+'</td><td>'+esc(r.flow)+'</td><td>'+esc(r.amount)+'</td><td>'+esc(r.status==='void'?'Void':'Active')+'</td><td>'+esc(r.notes)+'</td></tr>').join('')+'</tbody></table></div>';
+  out.innerHTML='<div class="tablewrap"><table class="table"><thead><tr><th>Date</th><th>No.</th><th>Source</th><th>Category</th><th>Movement</th><th>Item</th><th>Qty</th><th>Stock / money flow</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>'+rows.map((r,i)=>'<tr class="'+(r.status==='void'?'muted':'')+'" style="cursor:pointer" title="Click to view full record" onclick="openHistoryRecord('+i+')"><td>'+esc(r.date)+'</td><td>'+esc(r.no)+'</td><td>'+esc(r.source)+'</td><td><strong>'+esc(r.category)+'</strong></td><td>'+esc(r.movement)+'</td><td>'+esc(r.item)+'</td><td>'+esc(r.quantity)+'</td><td>'+esc(r.flow)+'</td><td>'+esc(r.amount)+'</td><td>'+esc(r.status==='void'?'Void':'Active')+'</td><td>'+esc(r.notes)+'</td></tr>').join('')+'</tbody></table></div>';
  }catch(e){msg.className='error';msg.textContent='History could not load: '+(e?.message||e)}
 }
 async function priceList(){document.getElementById('content').innerHTML='<div class="card"><h3>Price List</h3><p class="muted">Current Store standard selling prices.</p><div class="tablewrap"><table class="table"><thead><tr><th>#</th><th>Laptop</th><th>Price</th></tr></thead><tbody>'+products.map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td><strong>'+money(p.standard_price)+'</strong></td></tr>').join('')+'</tbody></table></div></div>';}
